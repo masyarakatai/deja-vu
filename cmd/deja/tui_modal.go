@@ -308,7 +308,7 @@ func (a *tuiApp) drawHelp() {
 	secs := []helpSection{
 		{"FIND", [][2]string{{"type", "search as you type"}, {"tab", "this project / all / deleted"}, {"↑↓ 1-9", "pick a session"}, {"↑ on empty", "past searches"}, {"a", "filter by agent"}}},
 		{"READ", [][2]string{{"↵", "open at the match"}, {"/", "find in the session"}, {"n N", "next / previous match"}, {"] [", "next / previous turn"}, {"t", "unfold long messages"}, {"g G", "top / bottom"}, {"esc", "back to the list"}}},
-		{"ACT", [][2]string{{"r", "resume in its agent"}, {"o", "continue in any agent"}, {"c", "copy the context"}, {"D", "delete from its agent"}, {"R", "put a deleted one back"}, {"^k", "copy id, path, forget…"}}},
+		{"ACT", [][2]string{{"r", "resume in its agent"}, {"o", "continue in any agent"}, {"c", "copy the context"}, {"D", "delete everywhere"}, {"R", "put a deleted one back"}, {"^k", "copy id, path, forget…"}}},
 	}
 	gap := 4
 	cols := helpColumns(secs, p.W-8-2*gap)

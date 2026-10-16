@@ -201,12 +201,7 @@ func (a *tuiApp) putBack() {
 		return
 	}
 	a.spawn(func() {
-		// From the trash it goes back as it was; the write-back from the
-		// index is the conversation only.
-		_, err := untrashSession(a.dir, s.Harness, s.ID)
-		if errors.Is(err, errNotInTrash) {
-			err = writeBackSession(a.dir, d.full, io.Discard)
-		}
+		err := writeBackSession(a.dir, d.full, io.Discard)
 		a.post(func() {
 			if err != nil {
 				a.say("Could not put it back: "+err.Error(), false)

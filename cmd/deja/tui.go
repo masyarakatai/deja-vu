@@ -74,7 +74,6 @@ type tuiApp struct {
 	latest      atomic.Int64 // seq of the newest search, read off the loop
 
 	kept       []model.Session
-	keptGen    atomic.Int64 // bumped by a delete, so an older scan is dropped
 	keptLoaded bool
 	keptIDs    map[string]bool
 
@@ -253,12 +252,9 @@ func (a *tuiApp) refreshIndex() {
 }
 
 func (a *tuiApp) loadKept() {
-	gen := a.keptGen.Load()
 	ss, err := tuiKept(a.dir)
 	a.post(func() {
-		// A scan that began before a delete on this screen answers for a
-		// store that no longer is; the one started after it will.
-		if err != nil || gen != a.keptGen.Load() {
+		if err != nil {
 			return
 		}
 		a.kept, a.keptLoaded = ss, true

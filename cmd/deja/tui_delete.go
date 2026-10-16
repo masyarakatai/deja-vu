@@ -4,25 +4,24 @@ import (
 	"strings"
 
 	"github.com/vshulcz/deja-vu/internal/mark"
-	"github.com/vshulcz/deja-vu/internal/model"
 	"github.com/vshulcz/deja-vu/internal/tui"
 )
 
-// D deletes the selected session from its agent, the way `deja delete` does:
-// into deja's trash, and R puts it back as it was.
+// D erases the selected session everywhere, the way `deja delete` does: its
+// agent's files, then deja's copy through the same path F takes.
 
 func (a *tuiApp) askDelete() {
 	s, ok := a.current()
 	if !ok {
 		return
 	}
-	if _, ok := cliStores[s.Harness]; !ok && !deletable[s.Harness] {
-		a.say(deletableRefusal(s.Harness).Error(), false)
-		return
-	}
-	if d := a.details[sessionKey(s)]; d != nil && d.gone {
-		a.say(agentName(s.Harness)+" no longer has this one; R puts it back.", false)
-		return
+	// Refuse before asking: a question answered with a refusal wastes the
+	// yes. eraseSession checks again when it runs.
+	if _, cli := cliStores[s.Harness]; !cli {
+		if _, err := sessionFiles(s, a.allMeta); err != nil {
+			a.say(err.Error(), false)
+			return
+		}
 	}
 	a.openModal(modalDelete)
 	a.m.src = s
@@ -44,27 +43,17 @@ func (a *tuiApp) handleDelete(ev tui.Event) {
 
 func (a *tuiApp) deleteSession() {
 	s := a.m.src
-	paths := make([]string, 0, len(a.allMeta))
-	for _, m := range a.allMeta {
-		paths = append(paths, m.Path)
-	}
+	others := a.allMeta
+	a.say("Erasing "+agentName(s.Harness)+"'s copy…", true)
 	a.spawn(func() {
-		_, err := trashSession(a.dir, s, paths)
+		_, err := eraseSession(a.dir, s, others)
 		a.post(func() {
 			if err != nil {
 				a.say(err.Error(), false)
 				return
 			}
-			if d := a.details[sessionKey(s)]; d != nil {
-				d.gone = true
-			}
-			if !a.keptIDs[sessionKey(s)] {
-				a.keptIDs[sessionKey(s)] = true
-				a.kept = append([]model.Session{s}, a.kept...)
-			}
-			a.keptGen.Add(1)
-			a.spawn(a.loadKept)
-			a.say("Deleted from "+agentName(s.Harness)+". R puts it back.", true)
+			// Gone from the agent; now from deja, the way F does it.
+			a.forgetSession(s)
 		})
 	})
 }
@@ -79,15 +68,15 @@ func (a *tuiApp) drawDelete() {
 		a.drawCat(x+1, y+1, mark.Nothing)
 		tx, ty = x+28, y+3
 	}
-	p.PutClip(tx, ty, "Delete it from "+agentName(s.Harness)+"?", bold(cText), right)
+	p.PutClip(tx, ty, "Delete this session everywhere?", bold(cText), right)
 	asked := strings.Join(strings.Fields(s.Title), " ")
 	if asked == "" {
 		asked = "(no prompt recorded)"
 	}
 	p.PutClip(tx, ty+1, asked, fgs(cText), right)
 	p.PutClip(tx, ty+2, agentName(s.Harness)+" · "+tuiProject(s)+" · "+tuiAgo(s.Updated, a.now), fgs(cMuted), right)
-	p.PutClip(tx, ty+4, agentName(s.Harness)+" stops listing it.", fgs(cSub), right)
-	p.PutClip(tx, ty+5, "deja keeps it 30 days; R puts it back.", fgs(cSub), right)
+	p.PutClip(tx, ty+4, "Gone from "+agentName(s.Harness)+" and from deja.", fgs(cSub), right)
+	p.PutClip(tx, ty+5, "This cannot be undone.", bold(cPeach), right)
 	bx := p.button(tx, ty+7, "↵", "Delete", true, right)
 	p.button(bx+2, ty+7, "esc", "Keep it", false, right)
 }
