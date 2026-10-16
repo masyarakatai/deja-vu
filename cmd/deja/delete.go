@@ -42,6 +42,7 @@ var (
 	errNotDeletable  = errors.New("not checked")
 	errNotFileBacked = errors.New("not a file of its own")
 	errInEditor      = errors.New("in the editor's storage")
+	errSubagent      = errors.New("a subagent of another session")
 )
 
 // deletableRefusal says why a session stays, and what to do instead.
@@ -67,8 +68,8 @@ func namesSession(p, id string) bool {
 	return len(id) >= 8 && strings.Contains(b, id[:8])
 }
 
-// ownStore is a database named by the session alone, Antigravity's
-// conversations/<id>.db and its -wal and -shm.
+// ownStore is a store named by the session alone, Antigravity's
+// conversations/<id>.db with its -wal and -shm, or <id>.pb.
 func ownStore(p, id string) bool {
 	return strings.HasPrefix(filepath.Base(p), id+".db")
 }
@@ -126,6 +127,9 @@ func deletableFiles(s model.Session, others []model.Session) ([]string, error) {
 			}
 		}
 	default:
+		if s.Parent != "" {
+			return nil, errSubagent
+		}
 		return nil, errNotFileBacked
 	}
 	files = append(files, companions(s)...)
@@ -233,13 +237,20 @@ func companions(s model.Session) []string {
 				}
 			}
 		}
+	case "qwen":
+		// Sub-agent logs sit beside chats/, in subagents/<id>/.
+		if chats := filepath.Dir(s.Path); filepath.Base(chats) == "chats" {
+			out = []string{filepath.Join(filepath.Dir(chats), "subagents", s.ID)}
+		}
 	case "cursor":
 		out, _ = filepath.Glob(filepath.Join(sources.CursorCLIRoot(), "chats", "*", s.ID))
 	case "antigravity":
 		if root := sessionDir(s); filepath.Base(filepath.Dir(root)) == "brain" {
 			// The conversation database is the session's own, named by its id.
-			base := filepath.Join(filepath.Dir(filepath.Dir(root)), "conversations", s.ID)
-			out = []string{base + ".db", base + ".db-shm", base + ".db-wal"}
+			ag := filepath.Dir(filepath.Dir(root))
+			base := filepath.Join(ag, "conversations", s.ID)
+			out = []string{base + ".db", base + ".db-shm", base + ".db-wal", base + ".pb",
+				filepath.Join(ag, "annotations", s.ID+".pbtxt"), filepath.Join(ag, "implicit", s.ID+".pb")}
 		}
 	}
 	return out
@@ -291,6 +302,8 @@ func sessionFiles(s model.Session, others []model.Session) ([]string, error) {
 	switch {
 	case errors.Is(err, errNotDeletable):
 		return nil, deletableRefusal(s.Harness)
+	case errors.Is(err, errSubagent):
+		return nil, fmt.Errorf("this is a subagent run inside session %s; it goes when that session is deleted", digest.Short(s.Parent))
 	case errors.Is(err, errInEditor):
 		return nil, fmt.Errorf("%s keeps this session in the editor's own storage, so deja does not delete it", agentName(s.Harness))
 	case errors.Is(err, errNotFileBacked):

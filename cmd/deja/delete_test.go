@@ -204,7 +204,8 @@ func TestDeleteTakesAntigravitysConversationDatabase(t *testing.T) {
 	tr := filepath.Join(root, "brain", id, ".system_generated", "logs", "overview.txt")
 	db := filepath.Join(root, "conversations", id+".db")
 	keep := filepath.Join(root, "conversations", "0aaaaaaa-other.db")
-	for _, p := range []string{tr, db, db + "-wal", keep} {
+	pbtxt := filepath.Join(root, "annotations", id+".pbtxt")
+	for _, p := range []string{tr, db, db + "-wal", keep, pbtxt} {
 		writeFile(t, p, "x")
 	}
 	aged(t, filepath.Join(root, "brain", id))
@@ -212,7 +213,7 @@ func TestDeleteTakesAntigravitysConversationDatabase(t *testing.T) {
 	if _, err := eraseSession(t.TempDir(), s, []model.Session{s}); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{filepath.Join(root, "brain", id), db, db + "-wal"} {
+	for _, p := range []string{filepath.Join(root, "brain", id), db, db + "-wal", pbtxt} {
 		if _, err := os.Stat(p); err == nil {
 			t.Errorf("%s is still there", p)
 		}
@@ -362,5 +363,37 @@ func TestDeleteDryRunListsAFreshSession(t *testing.T) {
 	}
 	if err := runDeleteIn(dir, []string{"b2222222", "--yes"}, nil, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "last 5 minutes") {
 		t.Errorf("erase of a fresh session: %v", err)
+	}
+}
+
+// Qwen keeps a chat's sub-agent logs in subagents/<id>/ beside chats/.
+func TestDeleteTakesQwensSubagentLogs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	id := "9a9a9a9a-qwen-chat"
+	proj := filepath.Join(home, ".qwen", "projects", "p")
+	tr := filepath.Join(proj, "chats", id+".jsonl")
+	sub := filepath.Join(proj, "subagents", id, "agent-1.jsonl")
+	writeFile(t, tr, "{}\n")
+	writeFile(t, sub, "{}\n")
+	aged(t, proj)
+	s := model.Session{Harness: "qwen", ID: id, Path: tr}
+	if _, err := eraseSession(t.TempDir(), s, []model.Session{s}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Dir(sub)); err == nil {
+		t.Error("the sub-agent logs stayed")
+	}
+}
+
+// A subagent run on its own is refused with the reason, not as shared.
+func TestDeleteSaysASubagentGoesWithItsParent(t *testing.T) {
+	home := t.TempDir()
+	sid := "4b4b4b4b-kimi-sess"
+	p := filepath.Join(home, ".kimi", "sessions", "h", sid, "agents", "explore", "wire.jsonl")
+	writeFile(t, p, "{}\n")
+	s := model.Session{Harness: "kimi", ID: "explore-" + sid, Parent: sid, Path: p}
+	if _, err := sessionFiles(s, []model.Session{s}); err == nil || !strings.Contains(err.Error(), "subagent run inside session") {
+		t.Errorf("%v", err)
 	}
 }
