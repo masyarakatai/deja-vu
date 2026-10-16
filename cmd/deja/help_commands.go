@@ -169,6 +169,11 @@ var helpEntries = []helpEntry{
 		desc:     "turn a session into a curated note with its evidence",
 		more:     "--to also appends the note to a Markdown file in the repo.",
 		examples: []string{`deja promote 01a00feb --state accepted --note "pgx v5 fixed the pool leak"`}},
+	{name: "delete", group: groupNotes,
+		usage:    []string{"deja delete <id-prefix>", "deja delete --undo <id-prefix> | --list"},
+		desc:     "delete a session from its agent, with undo",
+		more:     "Moves the session out of its agent into deja's trash for 30 days; --undo puts it back as it was. Agents that keep a session as its own files, and opencode; not goose, Hermes or Zed. deja's copy stays searchable either way.",
+		examples: []string{"deja delete 01a00feb", "deja delete --undo 01a00feb", "deja delete --list"}},
 	{name: "forget", group: groupNotes,
 		usage: []string{
 			"deja forget [--session <id-prefix>] [--project <substring>] [--before <duration|date>] [--dry-run] [--all-matches]",
