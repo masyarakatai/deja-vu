@@ -39,6 +39,13 @@
     <summary>Qwen Code keeps one JSONL file per session under ~/.qwen/projects. Delete one session with its sub-agent logs, or all, and keep your settings.</summary>
   </entry>
   <entry>
+    <title>How to delete TRAE CLI sessions — deja-vu</title>
+    <id>https://vshulcz.github.io/deja-vu/guide/delete-trae-sessions.html</id>
+    <link rel="alternate" type="text/html" href="https://vshulcz.github.io/deja-vu/guide/delete-trae-sessions.html"></link>
+    <updated>2026-10-16T00:00:00Z</updated>
+    <summary>How to delete TRAE CLI sessions — one rollout, one day, or all of ~/.trae/cli/sessions — and why an archived session and history.jsonl survive it.</summary>
+  </entry>
+  <entry>
     <title>Privacy — deja-vu docs</title>
     <id>https://vshulcz.github.io/deja-vu/guide/privacy.html</id>
     <link rel="alternate" type="text/html" href="https://vshulcz.github.io/deja-vu/guide/privacy.html"></link>
@@ -282,12 +289,5 @@
     <link rel="alternate" type="text/html" href="https://vshulcz.github.io/deja-vu/guide/memory-for-codewhale.html"></link>
     <updated>2026-10-14T00:00:00Z</updated>
     <summary>CodeWhale keeps one JSON file per session and reads none of them back. deja indexes them with every other agent on the machine and makes them searchable.</summary>
-  </entry>
-  <entry>
-    <title>Add memory to Codex CLI: every agent&#39;s sessions — deja-vu</title>
-    <id>https://vshulcz.github.io/deja-vu/guide/memory-for-codex.html</id>
-    <link rel="alternate" type="text/html" href="https://vshulcz.github.io/deja-vu/guide/memory-for-codex.html"></link>
-    <updated>2026-10-14T00:00:00Z</updated>
-    <summary>How to give Codex CLI recall over every coding agent&#39;s sessions on this machine — the MCP server, the hook it has to approve, and the plugin marketplace.</summary>
   </entry>
 </feed>
