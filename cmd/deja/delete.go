@@ -41,6 +41,7 @@ var deletable = map[string]bool{
 var (
 	errNotDeletable  = errors.New("not checked")
 	errNotFileBacked = errors.New("not a file of its own")
+	errInEditor      = errors.New("in the editor's storage")
 )
 
 // deletableRefusal says why a session stays, and what to do instead.
@@ -90,10 +91,13 @@ func deletableFiles(s model.Session, others []model.Session) ([]string, error) {
 	if !deletable[s.Harness] {
 		return nil, errNotDeletable
 	}
-	if s.Path == "" || strings.Contains(filepath.ToSlash(s.Path), "/globalStorage/") {
+	if s.Path == "" {
 		return nil, errNotDeletable
 	}
-	if len(s.ID) < 8 || filepath.Base(s.ID) != s.ID || strings.ContainsAny(s.ID, `/\`) {
+	if strings.Contains(filepath.ToSlash(s.Path), "/globalStorage/") {
+		return nil, errInEditor
+	}
+	if len(s.ID) < 8 || filepath.Base(s.ID) != s.ID || strings.ContainsAny(s.ID, `/\*?[`) {
 		return nil, fmt.Errorf("session id %q is too short to tell its files apart", s.ID)
 	}
 	if len(others) == 0 {
@@ -143,13 +147,18 @@ func deletableFiles(s model.Session, others []model.Session) ([]string, error) {
 			}
 		}
 	}
-	files = existing(files)
+	return existing(files), nil
+}
+
+// refuseFresh takes a file written in the last minutes for a session still
+// running.
+func refuseFresh(s model.Session, files []string) error {
 	for _, f := range files {
 		if fresh(f, time.Now()) {
-			return nil, fmt.Errorf("session %s was written in the last %d minutes; if it is still running, end it first", digest.Short(s.ID), int(recentlyWritten.Minutes()))
+			return fmt.Errorf("session %s was written in the last %d minutes; if it is still running, end it first", digest.Short(s.ID), int(recentlyWritten.Minutes()))
 		}
 	}
-	return files, nil
+	return nil
 }
 
 // childOf says o was spawned by s, by the session's own record or by living
@@ -159,11 +168,19 @@ func childOf(o, s model.Session) bool {
 		return true
 	}
 	for d := filepath.Dir(o.Path); d != filepath.Dir(d); d = filepath.Dir(d) {
-		if filepath.Base(d) == s.ID || strings.HasSuffix(filepath.Base(d), "_"+s.ID) || strings.HasSuffix(filepath.Base(d), "-"+s.ID) {
+		if dirOfSession(filepath.Base(d), s.ID) {
 			return true
 		}
 	}
 	return false
+}
+
+// dirOfSession says a directory is named for the session alone: the id, or
+// dsh's session-<id>. A name that only contains the id is not enough: Claude
+// files a session run in /work/<id> under the project directory -work-<id>,
+// next to every other session of that project.
+func dirOfSession(base, id string) bool {
+	return base == id || base == "session-"+id || base == "session_"+id
 }
 
 func fresh(p string, now time.Time) bool {
@@ -180,13 +197,13 @@ func fresh(p string, now time.Time) bool {
 	return recent
 }
 
-// sessionDir is the highest directory above the transcript whose name carries
-// the session's id, or "", stopping at the home directory.
+// sessionDir is the highest directory above the transcript named for the
+// session alone, or "", stopping at the home directory.
 func sessionDir(s model.Session) string {
 	home, _ := os.UserHomeDir()
 	found := ""
 	for d := filepath.Dir(s.Path); d != filepath.Dir(d) && d != home; d = filepath.Dir(d) {
-		if strings.Contains(filepath.Base(d), s.ID) {
+		if dirOfSession(filepath.Base(d), s.ID) {
 			found = d
 		}
 	}
@@ -217,8 +234,7 @@ func companions(s model.Session) []string {
 			}
 		}
 	case "cursor":
-		home, _ := os.UserHomeDir()
-		out, _ = filepath.Glob(filepath.Join(home, ".cursor", "chats", "*", s.ID))
+		out, _ = filepath.Glob(filepath.Join(sources.CursorCLIRoot(), "chats", "*", s.ID))
 	case "antigravity":
 		if root := sessionDir(s); filepath.Base(filepath.Dir(root)) == "brain" {
 			// The conversation database is the session's own, named by its id.
@@ -258,6 +274,9 @@ func eraseSession(dir string, s model.Session, others []model.Session) ([]string
 	if err != nil {
 		return nil, err
 	}
+	if err := refuseFresh(s, files); err != nil {
+		return nil, err
+	}
 	for _, f := range files {
 		if err := os.RemoveAll(f); err != nil {
 			return nil, fmt.Errorf("could not remove %s: %w", f, err)
@@ -272,6 +291,8 @@ func sessionFiles(s model.Session, others []model.Session) ([]string, error) {
 	switch {
 	case errors.Is(err, errNotDeletable):
 		return nil, deletableRefusal(s.Harness)
+	case errors.Is(err, errInEditor):
+		return nil, fmt.Errorf("%s keeps this session in the editor's own storage, so deja does not delete it", agentName(s.Harness))
 	case errors.Is(err, errNotFileBacked):
 		return nil, fmt.Errorf("%s keeps this session in a file it shares with others, so deja does not delete it", agentName(s.Harness))
 	case err != nil:
@@ -313,7 +334,7 @@ func runDeleteIn(dir string, args []string, in io.Reader, w io.Writer) error {
 		switch a {
 		case "--dry-run":
 			dry = true
-		case "--yes", "-y":
+		case "--yes":
 			yes = true
 		default:
 			if strings.HasPrefix(a, "-") {
@@ -337,7 +358,7 @@ func runDeleteIn(dir string, args []string, in io.Reader, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if n := index.PrefixMatchesAllowed(dir, prefix, searchAllows()); n > 1 {
+	if n := index.PrefixMatches(dir, prefix); n > 1 {
 		return fmt.Errorf("%d sessions match %q — delete erases one; use a longer prefix (`deja last` prints ids whole)", n, prefix)
 	}
 	s, ok, err := index.FindByPrefix(dir, prefix)
@@ -346,6 +367,11 @@ func runDeleteIn(dir string, args []string, in io.Reader, w io.Writer) error {
 	}
 	if !ok {
 		return noSessionMatches(dir, prefix)
+	}
+	// The resolver also matches the middle of an id; an erase takes the start
+	// of one, or the head…tail form deja prints.
+	if !idStartsWith(s.ID, prefix) {
+		return fmt.Errorf("%q is not the start of a session id; delete takes the id as `deja last` prints it", prefix)
 	}
 	var files []string
 	if c, ok := cliStores[s.Harness]; ok {
@@ -360,6 +386,9 @@ func runDeleteIn(dir string, args []string, in io.Reader, w io.Writer) error {
 	if dry {
 		fmt.Fprintln(w, "dry run: nothing removed; without --dry-run these go, and deja's copy with them")
 		return nil
+	}
+	if err := refuseFresh(s, files); err != nil {
+		return err
 	}
 	if !yes {
 		if !isTerminalReader(in) {
@@ -381,6 +410,13 @@ func runDeleteIn(dir string, args []string, in io.Reader, w io.Writer) error {
 	}
 	fmt.Fprintf(w, "erased %s from %s and from deja\n", digest.Short(s.ID), agentName(s.Harness))
 	return nil
+}
+
+func idStartsWith(id, p string) bool {
+	if head, tail, ok := strings.Cut(p, "…"); ok {
+		return strings.HasPrefix(id, head) && strings.HasSuffix(id, tail)
+	}
+	return strings.HasPrefix(id, p)
 }
 
 // forgetErased drops deja's copy of a session just erased from its agent.

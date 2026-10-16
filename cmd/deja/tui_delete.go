@@ -18,7 +18,11 @@ func (a *tuiApp) askDelete() {
 	// Refuse before asking: a question answered with a refusal wastes the
 	// yes. eraseSession checks again when it runs.
 	if _, cli := cliStores[s.Harness]; !cli {
-		if _, err := sessionFiles(s, a.allMeta); err != nil {
+		files, err := sessionFiles(s, a.allMeta)
+		if err == nil {
+			err = refuseFresh(s, files)
+		}
+		if err != nil {
 			a.say(err.Error(), false)
 			return
 		}
@@ -27,15 +31,18 @@ func (a *tuiApp) askDelete() {
 	a.m.src = s
 }
 
+// handleDelete takes y for the erase. Enter keeps the session: it cannot be
+// undone, so a reflexive Enter must not be the yes.
 func (a *tuiApp) handleDelete(ev tui.Event) {
 	switch ev.Key {
-	case tui.KeyEnter:
-		a.modal = modalNone
-		a.deleteSession()
-	case tui.KeyEsc:
+	case tui.KeyEnter, tui.KeyEsc:
 		a.modal = modalNone
 	case tui.KeyRune:
-		if ev.Rune == 'q' || ev.Rune == 'n' {
+		switch ev.Rune {
+		case 'y', 'Y':
+			a.modal = modalNone
+			a.deleteSession()
+		case 'q', 'n':
 			a.modal = modalNone
 		}
 	}
@@ -53,7 +60,9 @@ func (a *tuiApp) deleteSession() {
 				return
 			}
 			// Gone from the agent; now from deja, the way F does it.
-			a.forgetSession(s)
+			name := agentName(s.Harness)
+			a.forgetSaying(s, "Deleted from "+name+" and from deja.",
+				"Gone from "+name+", but deja still holds a copy: ")
 		})
 	})
 }
@@ -77,6 +86,6 @@ func (a *tuiApp) drawDelete() {
 	p.PutClip(tx, ty+2, agentName(s.Harness)+" · "+tuiProject(s)+" · "+tuiAgo(s.Updated, a.now), fgs(cMuted), right)
 	p.PutClip(tx, ty+4, "Gone from "+agentName(s.Harness)+" and from deja.", fgs(cSub), right)
 	p.PutClip(tx, ty+5, "This cannot be undone.", bold(cPeach), right)
-	bx := p.button(tx, ty+7, "↵", "Delete", true, right)
-	p.button(bx+2, ty+7, "esc", "Keep it", false, right)
+	bx := p.button(tx, ty+7, "↵", "Keep it", true, right)
+	p.button(bx+2, ty+7, "y", "Delete", false, right)
 }

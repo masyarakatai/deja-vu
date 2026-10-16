@@ -124,15 +124,20 @@ func TestDeleteRefusesWhatIsNotOneSessions(t *testing.T) {
 	writeFile(t, hist, "{}\n")
 	s = model.Session{Harness: "claude", ID: "aaaa1111-x", Path: hist}
 	refuse("history.jsonl", s, []model.Session{s, other}, "shares with others")
-	// A directory that carries the id in a longer name, with an unrelated
-	// session inside. (One named exactly by the id holds its own subagents.)
+	// A directory that only carries the id in a longer name is not the
+	// session's, so the session inside it, named by nothing, stays.
 	sd := filepath.Join(home, ".copilot", "session-state", "bbbb2222-session-copy")
 	mine, theirs := filepath.Join(sd, "events.jsonl"), filepath.Join(sd, "x", "events.jsonl")
 	writeFile(t, mine, "{}\n")
 	writeFile(t, theirs, "{}\n")
 	aged(t, sd)
 	s = model.Session{Harness: "copilot", ID: "bbbb2222-session", Path: mine}
-	refuse("someone else's session inside", s, []model.Session{s, {Harness: "copilot", ID: "cccc3333-else", Path: theirs}}, "also holds")
+	refuse("a directory that only contains the id", s, []model.Session{s, {Harness: "copilot", ID: "cccc3333-else", Path: theirs}}, "shares with others")
+	// The transcript itself shared with another indexed session.
+	own := filepath.Join(home, ".qwen", "projects", "p", "chats", "abab1212-q.jsonl")
+	writeFile(t, own, "{}\n")
+	s = model.Session{Harness: "qwen", ID: "abab1212-q", Path: own}
+	refuse("a transcript another session reads", s, []model.Session{s, {Harness: "qwen", ID: "cdcd3434-q", Path: own}}, "also holds")
 	// No index to check against.
 	refuse("no index", s, nil, "could not read its index")
 	// A file named by nothing.
@@ -171,6 +176,7 @@ func TestDeleteTakesCursorsChatStoreToo(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	id := "cf555555-f21f-4493-b8f8-7eaf2c0a80d4"
+	t.Setenv("DEJA_CURSOR_CLI_ROOT", filepath.Join(home, ".cursor"))
 	tr := filepath.Join(home, ".cursor", "projects", "p", "agent-transcripts", id, id+".jsonl")
 	store := filepath.Join(home, ".cursor", "chats", "42802a0c", id, "store.db")
 	writeFile(t, tr, "{}\n")
@@ -265,13 +271,25 @@ func TestTUIDeleteErasesEverywhere(t *testing.T) {
 		t.Fatalf("D opened modal %d", a.modal)
 	}
 	wantOnScreen(t, screen(a.frame(100, 30)), "Delete this session everywhere?", "Gone from Claude Code and from deja.", "This cannot be undone.")
+	// Enter keeps it: the reflexive key is not the yes.
 	a.handle(tui.Event{Kind: tui.EvKey, Key: tui.KeyEnter})
+	if a.modal != modalNone {
+		t.Fatal("Enter left the question open")
+	}
+	if _, err := os.Stat(tr); err != nil {
+		t.Fatal("Enter erased the session")
+	}
+	a.handle(tui.Event{Kind: tui.EvKey, Key: tui.KeyRune, Rune: 'D'})
+	a.handle(tui.Event{Kind: tui.EvKey, Key: tui.KeyRune, Rune: 'y'})
 	settle(a)
 	if _, err := os.Stat(tr); err == nil {
 		t.Error("the transcript is still there")
 	}
 	if len(forgot) != 1 || forgot[0] != "b2222222-retry" {
 		t.Errorf("deja forgot %v", forgot)
+	}
+	if strings.Contains(a.toast, "unforget") {
+		t.Errorf("the toast offers an undo that does not exist: %q", a.toast)
 	}
 }
 
@@ -286,5 +304,63 @@ func settle(a *tuiApp) {
 		default:
 			return
 		}
+	}
+}
+
+// A session run in /work/<id> is filed by Claude under -work-<id>, the
+// project directory every other session there shares. Only the session's own
+// transcript and <id>/ go; the project directory and its neighbour stay.
+func TestDeleteKeepsAProjectDirectoryThatOnlyContainsTheID(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	id := "5e55a0aa-1111-4222-8333-444455556666"
+	proj := filepath.Join(home, ".claude", "projects", "-work-"+id)
+	mine := filepath.Join(proj, id+".jsonl")
+	theirs := filepath.Join(proj, "77777777-0000-4000-8000-000000000000.jsonl")
+	writeFile(t, mine, "{}\n")
+	writeFile(t, theirs, "{}\n")
+	writeFile(t, filepath.Join(proj, "memory", "MEMORY.md"), "x")
+	aged(t, proj)
+	s := model.Session{Harness: "claude", ID: id, Path: mine}
+	// The neighbour forgotten in deja: the index no longer names it.
+	files, err := eraseSession(t.TempDir(), s, []model.Session{s})
+	if err != nil || len(files) != 1 || files[0] != mine {
+		t.Fatalf("erased %v, %v; want only the transcript", files, err)
+	}
+	for _, p := range []string{theirs, filepath.Join(proj, "memory", "MEMORY.md")} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s went with it", p)
+		}
+	}
+}
+
+// The resolver matches the middle of an id; an erase must not.
+func TestDeleteTakesTheStartOfAnIDOnly(t *testing.T) {
+	dir, root := tuiStore(t)
+	aged(t, filepath.Join(root, "payments"))
+	indexed(t, dir)
+	for _, p := range []string{"retry", "2222"} {
+		err := runDeleteIn(dir, []string{p, "--yes"}, nil, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "not the start of a session id") {
+			t.Errorf("%q: %v", p, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "payments", "b2222222-retry.jsonl")); err != nil {
+		t.Fatal("a fragment of the id erased the session")
+	}
+}
+
+// A dry run lists a session written a minute ago; only the erase refuses it.
+func TestDeleteDryRunListsAFreshSession(t *testing.T) {
+	dir, root := tuiStore(t)
+	tr := filepath.Join(root, "payments", "b2222222-retry.jsonl")
+	indexed(t, dir)
+	_ = os.Chtimes(tr, time.Now(), time.Now())
+	var out bytes.Buffer
+	if err := runDeleteIn(dir, []string{"b2222222", "--dry-run"}, nil, &out); err != nil || !strings.Contains(out.String(), tr) {
+		t.Errorf("dry run: %q, %v", out.String(), err)
+	}
+	if err := runDeleteIn(dir, []string{"b2222222", "--yes"}, nil, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "last 5 minutes") {
+		t.Errorf("erase of a fresh session: %v", err)
 	}
 }
