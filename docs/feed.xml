@@ -43,7 +43,7 @@
     <id>https://vshulcz.github.io/deja-vu/guide/delete-codebuddy-sessions.html</id>
     <link rel="alternate" type="text/html" href="https://vshulcz.github.io/deja-vu/guide/delete-codebuddy-sessions.html"></link>
     <updated>2026-10-16T00:00:00Z</updated>
-    <summary>How to delete CodeBuddy Code and WorkBuddy sessions — one JSONL per session under ~/.codebuddy/projects, and the sub-agent directory that outlives the file.</summary>
+    <summary>How to delete CodeBuddy Code and WorkBuddy sessions — CodeBuddy cleans expired sessions itself via SessionHistoryClean (cleanupPeriodDays defaults to 30), one .meta.json per session under ~/.codebuddy/projects.</summary>
   </entry>
   <entry>
     <title>Delete Copilot CLI session history — deja-vu</title>
